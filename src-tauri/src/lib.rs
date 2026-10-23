@@ -623,6 +623,24 @@ pub fn run() {
         default_hook(info);
     }));
 
+    // Windows：强制 WebView2 使用固定的用户数据目录，避免默认落在 %TEMP% 下。
+    // WEBVIEW2_USER_DATA_FOLDER 是 WebView2 官方环境变量，优先级最高，
+    // 必须在创建任何 WebView2 环境之前设置。值应为「父目录」，
+    // WebView2 会在其中自动创建 EBWebView 子目录。
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+            let webview_root = std::path::PathBuf::from(local_app_data)
+                .join("com.mdreader.desktop");
+            let _ = std::fs::create_dir_all(&webview_root);
+            // SAFETY: run() 此时是单线程，且尚未创建任何 WebView2 环境。
+            #[allow(unused_unsafe)]
+            unsafe {
+                std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &webview_root);
+            }
+        }
+    }
+
     tauri::Builder::default()
         // Managed at builder level ON PURPOSE: RunEvent::Opened can be delivered
         // before setup() runs (macOS hands the odoc event over during app
@@ -666,18 +684,15 @@ pub fn run() {
             app.manage(WatcherState::default());
 
             // window-state 插件必须在窗口创建前注册，以便捕获窗口创建事件并恢复状态。
-            // 同时把它放在 setup 内部，符合 Tauri 官方推荐的位置。
             app.handle()
                 .plugin(tauri_plugin_window_state::Builder::default().build())?;
 
-            // 将 WebView2 数据目录固定到 %LOCALAPPDATA%\com.mdreader.desktop\EBWebView，
-            // 避免默认落在 %TEMP% 下被系统/清理软件误删导致界面偶发无法加载。
+            // 固定 WebView2 数据目录到 %LOCALAPPDATA%\com.mdreader.desktop。
+            // 环境变量是主保险，data_directory 是双保险。
+            // 注意：这里传的是父目录，WebView2 会在其中自动创建 EBWebView 子目录。
             let app_data_dir = app.path().app_local_data_dir()?;
-            let webview_data_dir = app_data_dir.join("EBWebView");
-            std::fs::create_dir_all(&webview_data_dir)?;
+            std::fs::create_dir_all(&app_data_dir)?;
 
-            // 手动创建主窗口（tauri.conf.json 中的 app.windows 已移除），
-            // 以便指定 data_directory。原配置里的窗口属性全部搬到这里。
             let window = WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -686,9 +701,8 @@ pub fn run() {
             .title("MD Reader")
             .inner_size(1100.0, 760.0)
             .min_inner_size(600.0, 400.0)
-
             .visible(false)
-            .data_directory(webview_data_dir)
+            .data_directory(app_data_dir)
             .build()?;
 
             let store = app.store(STORAGE_FILE)?;
