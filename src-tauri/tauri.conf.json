@@ -10,17 +10,6 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "title": "MD Reader",
-        "width": 1100,
-        "height": 760,
-        "minWidth": 600,
-        "minHeight": 400,
-        "dragDropEnabled": true,
-        "visible": false
-      }
-    ],
     "security": {
       "csp": null,
       "assetProtocol": {
