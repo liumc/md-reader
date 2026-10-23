@@ -686,7 +686,7 @@ pub fn run() {
             .title("MD Reader")
             .inner_size(1100.0, 760.0)
             .min_inner_size(600.0, 400.0)
-            .drag_drop_enabled(true)
+
             .visible(false)
             .data_directory(webview_data_dir)
             .build()?;
