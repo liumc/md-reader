@@ -20,7 +20,7 @@ use std::time::Duration;
 use notify_debouncer_mini::notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_store::StoreExt;
 
 mod pdf_export;
@@ -658,13 +658,39 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // 注意：tauri_plugin_window_state 已移到 setup 内部注册，
+        // 以便在窗口创建之前就绪，能捕获窗口创建事件并恢复状态。
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_system_fonts::init())
         .setup(|app| {
             app.manage(WatcherState::default());
 
-            let window = app.get_webview_window("main").unwrap();
+            // window-state 插件必须在窗口创建前注册，以便捕获窗口创建事件并恢复状态。
+            // 同时把它放在 setup 内部，符合 Tauri 官方推荐的位置。
+            app.handle()
+                .plugin(tauri_plugin_window_state::Builder::default().build())?;
+
+            // 将 WebView2 数据目录固定到 %LOCALAPPDATA%\com.mdreader.desktop\EBWebView，
+            // 避免默认落在 %TEMP% 下被系统/清理软件误删导致界面偶发无法加载。
+            let app_data_dir = app.path().app_local_data_dir()?;
+            let webview_data_dir = app_data_dir.join("EBWebView");
+            std::fs::create_dir_all(&webview_data_dir)?;
+
+            // 手动创建主窗口（tauri.conf.json 中的 app.windows 已移除），
+            // 以便指定 data_directory。原配置里的窗口属性全部搬到这里。
+            let window = WebviewWindowBuilder::new(
+                app,
+                "main",
+                WebviewUrl::App("index.html".into()),
+            )
+            .title("MD Reader")
+            .inner_size(1100.0, 760.0)
+            .min_inner_size(600.0, 400.0)
+            .drag_drop_enabled(true)
+            .visible(false)
+            .data_directory(webview_data_dir)
+            .build()?;
+
             let store = app.store(STORAGE_FILE)?;
             if let Some(theme) = store.get(THEME_STORAGE_KEY) {
                 if theme.eq("light") {
